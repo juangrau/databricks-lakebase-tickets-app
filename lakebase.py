@@ -16,7 +16,10 @@ from contextlib import contextmanager
 
 import psycopg2
 from databricks.sdk import WorkspaceClient
+from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
+
+load_dotenv()
 
 _SCOPE = os.environ.get("LAKEBASE_SECRET_SCOPE", "database")
 _KEY = os.environ.get("LAKEBASE_SECRET_KEY", "lakebase-url")
@@ -42,11 +45,18 @@ def get_connection():
 
 
 def run_query(sql: str, params: tuple | dict | None = None) -> list[dict]:
-    """Run a read query against Lakebase and return rows as list[dict]."""
+    """Run a query against Lakebase and return rows as list[dict].
+
+    Commits after execution so INSERT/UPDATE ... RETURNING statements
+    persist. psycopg2 rolls back on close, so without this writes were
+    silently discarded.
+    """
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            return cur.fetchall()
+            rows = cur.fetchall()
+            conn.commit()
+            return rows
 
 
 def run_write(sql: str, params: tuple | dict | None = None) -> int:
