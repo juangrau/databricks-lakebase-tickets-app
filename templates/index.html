@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Support Tickets</title>
+  <style>
+    body { font-family: -apple-system, Arial, sans-serif; max-width: 900px; margin: 40px auto; color: #222; padding: 0 16px; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 16px; }
+    .hint { color: #777; font-size: 13px; }
+    .row { display: flex; gap: 24px; align-items: flex-start; }
+    .col { flex: 1; }
+    label { display: block; margin-top: 12px; font-weight: 600; font-size: 14px; }
+    input[type="text"], select, textarea { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+    textarea { min-height: 80px; resize: vertical; }
+    button { margin-top: 12px; padding: 8px 16px; cursor: pointer; }
+    .card { background: #f6f6f6; border-radius: 6px; padding: 12px; margin-top: 16px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }
+    th { font-size: 13px; color: #555; text-transform: uppercase; }
+    tr.ticket { cursor: pointer; }
+    tr.ticket:hover td { background: #eef4ff; }
+    tr.selected td { background: #dbe7ff; font-weight: 600; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; color: #fff; }
+    .badge.open { background: #e67e22; }
+    .badge.in_progress { background: #2980b9; }
+    .badge.resolved { background: #27ae60; }
+    .badge.closed { background: #7f8c8d; }
+    .msg { border-bottom: 1px solid #eee; padding: 8px 0; }
+    .msg .meta { font-size: 12px; color: #777; }
+    #result { margin-top: 16px; white-space: pre-wrap; background: #f6f6f6; padding: 12px; border-radius: 6px; }
+    #result.error { background: #fdecea; color: #a93226; }
+    .actions { margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Support Tickets</h1>
+  <p class="hint">Data is read from and written to Lakebase (Databricks-managed Postgres).</p>
+
+  <div id="result"></div>
+
+  <div class="row">
+    <div class="col">
+      <h2>All tickets</h2>
+      <button onclick="loadTickets()">Refresh</button>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Title</th><th>Status</th><th>Priority</th><th>Created by</th></tr>
+        </thead>
+        <tbody id="tickets-body"></tbody>
+      </table>
+    </div>
+
+    <div class="col">
+      <h2>Selected ticket</h2>
+      <div id="ticket-detail"><p class="hint">Select a ticket from the list to view its messages.</p></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <h2>Create a new ticket</h2>
+      <form id="create-form">
+        <label for="new-title">Title</label>
+        <input type="text" id="new-title" required>
+        <label for="new-priority">Priority</label>
+        <select id="new-priority">
+          <option value="low">low</option>
+          <option value="medium" selected>medium</option>
+          <option value="high">high</option>
+          <option value="critical">critical</option>
+        </select>
+        <label for="new-created-by">Created by</label>
+        <input type="text" id="new-created-by">
+        <button type="submit">Create ticket</button>
+      </form>
+    </div>
+
+    <div class="col">
+      <h2>Add a message</h2>
+      <form id="message-form">
+        <label for="msg-text">Message</label>
+        <textarea id="msg-text" required></textarea>
+        <label for="msg-author">Author</label>
+        <input type="text" id="msg-author">
+        <button type="submit">Add message to selected ticket</button>
+      </form>
+    </div>
+
+    <div class="col">
+      <h2>Update status</h2>
+      <form id="status-form">
+        <label for="status-select">New status</label>
+        <select id="status-select">
+          <option value="open">open</option>
+          <option value="in_progress">in_progress</option>
+          <option value="resolved">resolved</option>
+          <option value="closed">closed</option>
+        </select>
+        <button type="submit">Update status of selected ticket</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let selectedTicket = null;
+
+    const resultEl = document.getElementById("result");
+    const ticketsBody = document.getElementById("tickets-body");
+    const detailEl = document.getElementById("ticket-detail");
+
+    function showResult(text, isError) {
+      resultEl.textContent = text;
+      resultEl.className = isError ? "error" : "";
+    }
+
+    function badge(status) {
+      return `<span class="badge ${status}">${status}</span>`;
+    }
+
+    async function loadTickets() {
+      try {
+        const resp = await fetch("/tickets");
+        const data = await resp.json();
+        if (!resp.ok) { showResult("Error loading tickets: " + (data.error || resp.statusText), true); return; }
+        ticketsBody.innerHTML = "";
+        data.forEach((t) => {
+          const tr = document.createElement("tr");
+          tr.className = "ticket" + (selectedTicket === t.ticket_id ? " selected" : "");
+          tr.innerHTML = `<td>${t.ticket_id}</td><td>${t.title}</td><td>${badge(t.status)}</td><td>${t.priority || "-"}</td><td>${t.created_by || "-"}</td>`;
+          tr.addEventListener("click", () => loadTicket(t.ticket_id));
+          ticketsBody.appendChild(tr);
+        });
+      } catch (err) {
+        showResult("Failed to load tickets: " + err, true);
+      }
+    }
+
+    async function loadTicket(id) {
+      selectedTicket = id;
+      try {
+        const resp = await fetch(`/tickets/${id}`);
+        const data = await resp.json();
+        if (!resp.ok) { showResult("Error loading ticket: " + (data.error || resp.statusText), true); return; }
+        let html = `<div class="card">
+          <strong>#${data.ticket_id}</strong> ${data.title}
+          <div class="meta">Status: ${badge(data.status)} &middot; Priority: ${data.priority || "-"} &middot; Created by ${data.created_by || "-"} at ${new Date(data.created_at).toLocaleString()}</div>
+        </div>
+        <h2>Messages</h2>`;
+        if (!data.messages.length) html += `<p class="hint">No messages yet.</p>`;
+        data.messages.forEach((m) => {
+          html += `<div class="msg"><strong>${m.author || "anonymous"}</strong> <span class="meta">${new Date(m.created_at).toLocaleString()}</span><br>${m.message_text}</div>`;
+        });
+        detailEl.innerHTML = html;
+        loadTickets();
+      } catch (err) {
+        showResult("Failed to load ticket: " + err, true);
+      }
+    }
+
+    document.getElementById("create-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        title: document.getElementById("new-title").value,
+        priority: document.getElementById("new-priority").value,
+        created_by: document.getElementById("new-created-by").value,
+      };
+      try {
+        const resp = await fetch("/tickets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok) { showResult("Error: " + (data.error || resp.statusText), true); return; }
+        showResult(`Created ticket #${data.ticket_id}: ${data.title}`);
+        e.target.reset();
+        loadTickets();
+      } catch (err) {
+        showResult("Request failed: " + err, true);
+      }
+    });
+
+    document.getElementById("message-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!selectedTicket) { showResult("Select a ticket first.", true); return; }
+      const payload = {
+        message_text: document.getElementById("msg-text").value,
+        author: document.getElementById("msg-author").value,
+      };
+      try {
+        const resp = await fetch(`/tickets/${selectedTicket}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok) { showResult("Error: " + (data.error || resp.statusText), true); return; }
+        showResult("Message added.");
+        e.target.reset();
+        loadTicket(selectedTicket);
+      } catch (err) {
+        showResult("Request failed: " + err, true);
+      }
+    });
+
+    document.getElementById("status-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!selectedTicket) { showResult("Select a ticket first.", true); return; }
+      const payload = { status: document.getElementById("status-select").value };
+      try {
+        const resp = await fetch(`/tickets/${selectedTicket}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok) { showResult("Error: " + (data.error || resp.statusText), true); return; }
+        showResult(`Ticket #${data.ticket_id} status set to ${data.status}`);
+        loadTicket(selectedTicket);
+      } catch (err) {
+        showResult("Request failed: " + err, true);
+      }
+    });
+
+    loadTickets();
+  </script>
+</body>
+</html>
