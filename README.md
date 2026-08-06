@@ -16,6 +16,7 @@ app.py            Flask app (routes, JSON API, error handling)
 lakebase.py       Lakebase / Postgres connection helper (psycopg2)
 create_tables.sql Schema for tickets and ticket_messages
 app.yaml          Databricks App deployment manifest
+setup_secrets.py  One-time script to create the secret scope + store the URL
 templates/        Single-page UI (index.html)
 ```
 
@@ -69,11 +70,23 @@ env:
     value: "lakebase-url"
 ```
 
-Create the secret beforehand:
+Create the secret beforehand by running the one-time setup script (from a terminal
+with the Databricks CLI configured, or in a notebook with `%sh python setup_secrets.py`):
+
+```bash
+python setup_secrets.py
+```
+
+It creates the `database` scope, stores the base64-encoded `lakebase-url`
+secret (prompted via `getpass`, never committed), and grants `users` read
+access so the app can resolve it at runtime.
+
+Equivalent CLI form, if you prefer doing it manually:
 
 ```bash
 databricks secrets put --scope database --key lakebase-url \
   --string-value "$(base64 <<< "$LAKEBASE_URL")"
+databricks secrets update-acl --scope database --principal users --permission READ
 ```
 
 ## Schema
