@@ -25,13 +25,24 @@ _SCOPE = os.environ.get("LAKEBASE_SECRET_SCOPE", "database")
 _KEY = os.environ.get("LAKEBASE_SECRET_KEY", "lakebase-url")
 
 
+def _from_base64(value: str) -> str:
+    """Return value base64-decoded if it decodes to a Postgres URL, else value."""
+    try:
+        decoded = base64.b64decode(value).decode("utf-8")
+        if decoded.startswith(("postgresql://", "postgres://")):
+            return decoded
+    except Exception:
+        pass
+    return value
+
+
 def _lakebase_url() -> str:
     """Resolve the Lakebase connection URL from env var or Databricks secret scope."""
     env_url = os.environ.get("LAKEBASE_URL")
     if env_url:
-        return env_url
+        return _from_base64(env_url)
     secret = WorkspaceClient().secrets.get_secret(scope=_SCOPE, key=_KEY)
-    return base64.b64decode(secret.value).decode("utf-8")
+    return _from_base64(secret.value)
 
 
 @contextmanager
