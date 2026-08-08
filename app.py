@@ -82,6 +82,51 @@ def list_tickets():
     return jsonify([_serialize_ticket(r) for r in rows])
 
 
+@app.route("/tickets/stats")
+def ticket_stats():
+    """Get ticket statistics."""
+    # Total count
+    total_rows = lakebase.run_query(
+        f"SELECT COUNT(*) as total FROM {TICKETS_TABLE}"
+    )
+    total = total_rows[0]["total"] if total_rows else 0
+
+    # Count by status
+    status_rows = lakebase.run_query(
+        f"SELECT status, COUNT(*) as count FROM {TICKETS_TABLE} GROUP BY status"
+    )
+    by_status = {row["status"]: row["count"] for row in status_rows}
+
+    # Count by priority
+    priority_rows = lakebase.run_query(
+        f"SELECT priority, COUNT(*) as count FROM {TICKETS_TABLE} "
+        f"WHERE priority IS NOT NULL GROUP BY priority"
+    )
+    by_priority = {row["priority"]: row["count"] for row in priority_rows}
+
+    # Created today
+    created_today_rows = lakebase.run_query(
+        f"SELECT COUNT(*) as count FROM {TICKETS_TABLE} "
+        f"WHERE DATE(created_at) = CURRENT_DATE"
+    )
+    created_today = created_today_rows[0]["count"] if created_today_rows else 0
+
+    # Resolved today
+    resolved_today_rows = lakebase.run_query(
+        f"SELECT COUNT(*) as count FROM {TICKETS_TABLE} "
+        f"WHERE status = 'resolved' AND DATE(created_at) = CURRENT_DATE"
+    )
+    resolved_today = resolved_today_rows[0]["count"] if resolved_today_rows else 0
+
+    return jsonify({
+        "total": total,
+        "by_status": by_status,
+        "by_priority": by_priority,
+        "created_today": created_today,
+        "resolved_today": resolved_today
+    })
+
+
 @app.route("/tickets", methods=["POST"])
 def create_ticket():
     """Create a new support ticket."""
